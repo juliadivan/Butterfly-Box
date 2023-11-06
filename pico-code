@@ -1,0 +1,179 @@
+import machine
+import time
+from umqtt.simple import MQTTClient
+from machine import ADC
+import math
+import accel
+import requests
+from servo import ContinuousServo
+
+#ADAFRUIT
+AIO_USERNAME = 'USERNAME'
+AIO_KEY = 'AIOKEY'
+FEED_NAME = 'FEEDNAME'
+
+#AIRTABLE
+API_KEY = 'APIKEY'
+BASE_ID = 'BASEID'
+TABLE_NAME = 'TABLENAME'
+url = f'https://api.airtable.com/v0/{BASE_ID}/{TABLE_NAME}'
+headers = {
+    'Authorization': f'Bearer {API_KEY}',
+}
+
+# Set threshold values
+TEMP_THRESHOLD = 26.0  # Adjust to your desired temperature threshold
+ACCELEROMETER_THRESHOLD = 0.1  # Adjust to your desired threshold
+
+# Create MQTT client
+client = MQTTClient(AIO_USERNAME, 'io.adafruit.com', user=AIO_USERNAME, password=AIO_KEY)
+client.connect()
+
+# Temperature sensor setup
+adcpin = 26
+sensor = ADC(adcpin)
+
+#accelerometer setup
+ac = accel.accelerometer(1, 19, 18)
+
+def read_accelerometer():
+    return ac.read_a()
+
+def thermistorTemp(Vout):
+    # Your thermistor temperature calculation function
+    # Voltage Divider
+    Vin = 3.3
+    Ro = 10000  # 10k Resistor
+
+    # Steinhart Constants
+    A = -0.01640849097420107
+    B = 0.002962040240708279
+    C = -0.000009557056002920398
+
+    # Calculate Resistance
+    Rt = (Vout * Ro) / (Vin - Vout) 
+    
+    # Steinhart - Hart Equation
+    TempK = 1 / (A + (B * math.log(Rt)) + C * math.pow(math.log(Rt), 3))
+
+    # Convert from Kelvin to Celsius
+    TempC = TempK - 273.15
+
+    return TempC
+
+def slow_flap():
+    print('slow flap')
+    servo = ContinuousServo(15)
+
+    num_iterations = 5
+
+    for i in range(num_iterations):
+        # Move the servo forward (from 0 to 180 degrees)
+        servo.set_speed(-31)
+        time.sleep(.75)  # Adjust the delay for the desired speed
+
+        servo.set_speed(21)
+        time.sleep(0.4)# Adjust the delay for the desired speed
+        
+    # Clean up and release resources
+    servo.set_speed(0)
+    servo.deinit()
+
+def fast_flap():
+    print('fast flap')
+    servo = ContinuousServo(15)
+
+    num_iterations = 8
+
+    for i in range(num_iterations):
+        # Move the servo forward (from 0 to 180 degrees)
+        servo.set_speed(-40)
+        time.sleep(.3)  # Adjust the delay for the desired speed
+
+        servo.set_speed(30)
+        time.sleep(.2)# Adjust the delay for the desired speed
+        
+    # Clean up and release resources
+    servo.set_speed(0)
+    servo.deinit()
+    
+    
+initial_data = read_accelerometer()
+
+# Initialize flag variables and timing variables
+slow_flap_triggered = False
+fast_flap_triggered = False
+temp_send_trigger = False
+temp_send_time = 0
+reset_time = 0
+slow_flap_time = 0  # Initialize time for slow_flap
+fast_flap_time = 0  # Initialize time for fast_flap
+
+while True:
+    # Read temperature
+    adc = sensor.read_u16()
+    Vout = (3.3 / 65535) * adc
+    temp_C = thermistorTemp(Vout)
+    print(temp_C)
+    
+
+    # Check temperature threshold
+    if slow_flap_triggered == False and fast_flap_triggered == False and temp_C > TEMP_THRESHOLD:
+        fast_flap()
+        fast_flap_triggered = True
+        fast_flap_time = time.ticks_ms()
+        
+    #ACCELEROMETER STUFF
+    # Read the current data
+    current_data = read_accelerometer()
+    print(current_data)
+
+        # Calculate the absolute change for each axis
+    changes = [abs(current_data[i] - initial_data[i]) for i in range(3)]
+
+        # Check if any change exceeds the threshold
+    threshold = 200
+    if any(fast_flap_triggered == False and slow_flap_triggered == False and change > threshold for change in changes):
+          slow_flap()    # Movement detected
+          slow_flap_triggered = True
+          slow_flap_time = time.ticks_ms()
+
+        # Update the initial data for the next iteration
+    initial_data = current_data
+
+    current_time = time.ticks_ms()
+    if slow_flap_triggered and time.ticks_diff(current_time, slow_flap_time) >= 2000:
+        slow_flap_triggered = False
+    if fast_flap_triggered and time.ticks_diff(current_time, fast_flap_time) >= 2000:
+        fast_flap_triggered = False
+    if temp_send_time >= (5 * 60 * 1000):
+        temp_send_trigger = True
+        reset_time = time.ticks_ms()
+    else:
+        temp_send_trigger = False
+    
+    
+    # Publish temperature data to Adafruit every 5 minutes
+    if temp_send_trigger == True:
+        response = requests.get(url, headers=headers)
+
+        if response.status_code == 200:
+            data = response.json()
+            records = data.get('records', [])
+
+            for record in records:
+                fields = record.get('fields', {})
+                # Process and print the data from each record
+                print(fields)
+                
+        color_string = str(fields)
+        print(color_string)
+        if fields == {'color': 'red'}:
+            client.publish(f'{AIO_USERNAME}/feeds/{FEED_NAME}', str(str(round(temp_C, 1)) +' celcius'), qos=1)
+        else:
+            farenheit = (temp_C *1.8) +32
+            client.publish(f'{AIO_USERNAME}/feeds/{FEED_NAME}', str(str(round(farenheit, 1)) + ' farhenheit'), qos=1)
+        print('published')
+    temp_send_time = time.ticks_ms() - reset_time
+
+    time.sleep(1)
