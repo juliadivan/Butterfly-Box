@@ -9,4 +9,4 @@ Then run the computer-code to send the color to this adafruit dashboard: https:/
 
 Run the connect wifi code on the pico to connect it to wifi
 
-Then run the pico code to make the butterfly box work. 
+Then run the pico code to make the butterfly box work. The accel.py and servo.py are both libraries that are used in this code to help run the servo and take accelerometer readings. They were created by Elijah and Chris Tilton respectively. 
