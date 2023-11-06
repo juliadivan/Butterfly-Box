@@ -1,0 +1,16 @@
+import network
+import time
+import ubinascii
+
+station = network.WLAN(network.STA_IF)
+station.active(True)
+    
+ssid = 'SSID'
+password = 'PASS'
+
+station.connect(ssid, password)
+while station.isconnected() == False:
+    time.sleep(1)
+    pass
+print('Connection successful')
+print(station.ifconfig())
