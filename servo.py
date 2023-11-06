@@ -1,4 +1,4 @@
-#servo.py
+#servo.py created by Chris Tilton
 
 from machine import PWM,Pin
 
