@@ -172,7 +172,7 @@ while True:
             client.publish(f'{AIO_USERNAME}/feeds/{FEED_NAME}', str(str(round(temp_C, 1)) +' celcius'), qos=1)
         else:
             farenheit = (temp_C *1.8) +32
-            client.publish(f'{AIO_USERNAME}/feeds/{FEED_NAME}', str(str(round(farenheit, 1)) + ' farhenheit'), qos=1)
+            client.publish(f'{AIO_USERNAME}/feeds/{FEED_NAME}', str(str(round(farhenheit, 1)) + ' farhenheit'), qos=1)
         print('published')
     temp_send_time = time.ticks_ms() - reset_time
 
